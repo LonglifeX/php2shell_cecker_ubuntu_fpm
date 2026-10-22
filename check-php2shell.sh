@@ -6,14 +6,14 @@
 # This script is read-only: it does not change, delete or restart anything.
 # Usage:    sudo bash check-php2shell.sh [SINCE-DATE] [WEBROOT]
 # Example:  sudo bash check-php2shell.sh 2026-08-01 /var/www
-# Output:   terminal + report at /root/php2shell-report-<timestamp>.txt
+# Output:   terminal + report at ./php2shell-report-<timestamp>.txt (current directory)
 # =============================================================================
 
 set -u
 
 SINCE="${1:-2026-08-01}"           # Start of review period (Sophos recommendation: 2026-08-01)
 WEBROOT="${2:-/var/www}"           # Webroot(s) to scan for web shells
-REPORT="/root/php2shell-report-$(date +%Y%m%d-%H%M%S).txt"
+REPORT="$PWD/php2shell-report-$(date +%Y%m%d-%H%M%S).txt"
 HITS=0
 
 # Fixed upstream patch releases per branch
@@ -219,10 +219,14 @@ fi
 # =============================================================================
 section "6. Running processes: shells/downloaders under PHP-FPM"
 # =============================================================================
-out=$(ps -eo pid,ppid,user,lstart,cmd --forest 2>/dev/null \
-  | awk '/php-fpm: pool/{inpool=1; print; next}
-         inpool && /\\_ / && /(sh|bash|dash|python|perl|curl|wget|nc|ncat|socat|base64)( |$)/ {print "  >>> " $0}
-         !/\\_ /{inpool=0}' | grep ">>>")
+# Look up worker PIDs with pgrep (it never matches itself), then inspect their direct children.
+# Columns: pid ppid user lstart(5 fields) cmd → $9 is the executable.
+out=""
+pool_pids=$(pgrep -d, -f '^php-fpm: pool' || true)
+if [[ -n "$pool_pids" ]]; then
+  out=$(ps -o pid,ppid,user,lstart,cmd --ppid "$pool_pids" 2>/dev/null \
+    | awk 'NR>1 && $9 ~ /(^|\/)(sh|bash|dash|python[0-9.]*|perl|curl|wget|nc|ncat|socat|base64)$/')
+fi
 if [[ -n "$out" ]]; then
   hit "Child processes of PHP-FPM workers:"; sed 's/^/       /' <<<"$out"
 else ok "No shell/download processes under PHP-FPM."; fi
