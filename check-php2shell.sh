@@ -50,8 +50,14 @@ echo "Review period since: $SINCE   Webroot: $WEBROOT"
 # =============================================================================
 section "1. Installed PHP-FPM versions and patch status"
 # =============================================================================
-mapfile -t FPM_VERS < <(ls -1 /etc/php 2>/dev/null | while read -r v; do
-  [[ -d /etc/php/$v/fpm ]] && echo "$v"; done)
+FPM_VERS=()
+for d in /etc/php/*/fpm; do
+  [[ -d $d ]] && FPM_VERS+=( "$(basename "$(dirname "$d")")" )
+done
+# Fallback: versions of running master processes ("php-fpm: master process (/etc/php/8.4/fpm/php-fpm.conf)")
+while read -r v; do
+  [[ " ${FPM_VERS[*]} " == *" $v "* ]] || FPM_VERS+=( "$v" )
+done < <(pgrep -a -f 'php-fpm: master process' 2>/dev/null | grep -oE '/php/[0-9]+\.[0-9]+/' | grep -oE '[0-9]+\.[0-9]+' | sort -u)
 
 if ((${#FPM_VERS[@]} == 0)); then
   warn "No PHP-FPM installation found under /etc/php/*/fpm."
